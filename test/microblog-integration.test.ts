@@ -36,10 +36,15 @@ async function setup(
   return { app, db, headers, userId };
 }
 
-async function sync(app: TestServer['app'], headers: Record<string, string>, percentage: number) {
+async function sync(
+  app: TestServer['app'],
+  headers: Record<string, string>,
+  percentage: number,
+  deviceId = 'd1'
+) {
   await app.request('/syncs/progress', {
     method: 'PUT', headers,
-    body: JSON.stringify({ document: DOC, progress: 'p', percentage, device_id: 'd1' }),
+    body: JSON.stringify({ document: DOC, progress: 'p', percentage, device_id: deviceId }),
   });
 }
 
@@ -135,6 +140,50 @@ it('does not let an older progress retry regress a newer finished state', async 
   expect(fake.shelves.get('finished')).toContainEqual(book);
   expect(fake.shelves.get('reading')).not.toContainEqual(book);
   expect(queueStatus(db)).toEqual({ status: 'done' });
+});
+
+it('uses canonical device ordering when two progress rows have the same timestamp', async () => {
+  const book = { id: '93', title: META.title, author: META.author! };
+  const fake = makeMicroblogTransport({ shelves: { reading: [book] } });
+  const { app, db, headers, userId } = await setup(fake);
+  saveMatch(db, userId, 'microblog', DOC, { externalId: book.id, confidence: 1 }, 'auto');
+
+  await sync(app, headers, 0.4, 'z-stale-reader');
+  await sync(app, headers, 0.99, 'a-canonical-reader');
+  db.prepare(
+    'UPDATE progress SET updated_at = 100 WHERE user_id = ? AND document = ?'
+  ).run(userId, DOC);
+  db.prepare(
+    `UPDATE connector_queue
+     SET next_try_at = CASE kind WHEN 'finished' THEN 100 ELSE 101 END
+     WHERE user_id = ? AND connector_id = 'microblog' AND document = ?`
+  ).run(userId, DOC);
+
+  const canonical = await (await app.request(`/syncs/progress/${DOC}`, { headers })).json();
+  expect(canonical).toMatchObject({
+    device_id: 'a-canonical-reader',
+    percentage: 0.99,
+    timestamp: 100,
+  });
+
+  fake.clearCalls();
+  expect(await drainQueue(db, fake.transport, 10, 100)).toBe(1);
+  expect(fake.shelves.get('finished')).toContainEqual(book);
+  expect(fake.shelves.get('reading')).not.toContainEqual(book);
+
+  fake.clearCalls();
+  expect(await drainQueue(db, fake.transport, 10, 101)).toBe(1);
+  expect(fake.calls).toHaveLength(0);
+  expect(fake.shelves.get('finished')).toContainEqual(book);
+  expect(fake.shelves.get('reading')).not.toContainEqual(book);
+  expect(db.prepare(
+    `SELECT kind, status FROM connector_queue
+     WHERE user_id = ? AND connector_id = 'microblog' AND document = ?
+     ORDER BY kind`
+  ).all(userId, DOC)).toEqual([
+    { kind: 'finished', status: 'done' },
+    { kind: 'progress', status: 'done' },
+  ]);
 });
 
 it('does not create when author metadata is missing', async () => {
