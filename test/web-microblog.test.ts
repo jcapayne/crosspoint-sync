@@ -9,7 +9,13 @@ describe('Micro.blog web setup', () => {
     expect(html).toContain('Micro.blog');
     expect(html).toContain('Currently reading');
     expect(html).toContain('Finished reading');
-    expect(html).toContain('onerror="this.style.display=\'none\'"');
+
+    const icon = await app.request('/icons/microblog.png');
+    expect(icon.status).toBe(200);
+    expect(icon.headers.get('content-type')).toBe('image/png');
+    expect([...new Uint8Array(await icon.arrayBuffer()).slice(0, 8)]).toEqual([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    ]);
   });
 
   it('renders where to create the pasted app token', async () => {
@@ -47,7 +53,13 @@ describe('Micro.blog web setup', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(getElement('desc').textContent).toBe(
-      'Paste your Micro.blog app token from Account → Edit Apps. Keeps your Currently reading and Finished reading bookshelves in sync.',
+      'Connect an app token to keep your Currently reading and Finished reading bookshelves in sync.',
     );
+    expect(getElement('form').innerHTML).toContain('Sign in to Micro.blog');
+    expect(getElement('form').innerHTML).toContain('https://micro.blog/account/apps');
+    expect(getElement('form').innerHTML).toContain('Account → App tokens');
+    expect(getElement('form').innerHTML).toContain('CrossPoint Sync');
+    expect(getElement('form').innerHTML).toContain('Copy the new token and paste it below');
+    expect(getElement('form').innerHTML).toContain('full access to your Micro.blog account');
   });
 });

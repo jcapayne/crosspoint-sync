@@ -61,6 +61,16 @@ DATABASE_PATH=./data/crosspoint.db PORT=8080 node dist/index.js
 | `AUTH_RATE_LIMIT_PER_MINUTE` | `30` | Per-IP limit on registration (0 disables) |
 | `TOKEN_ENC_KEY` | _(unset)_ | Enables external-service connectors. 64 hex chars, a base64 32-byte key, or a ≥32-char passphrase. Encrypts stored connector credentials at rest; unset = connectors disabled. |
 
+### Link Micro.blog
+
+1. Sign in to [Micro.blog](https://micro.blog/).
+2. Open [Account → App tokens](https://micro.blog/account/apps).
+3. Create a separate app token for **CrossPoint Sync**.
+4. In CrossPoint Sync, open your account, choose **Micro.blog**, and paste the new token.
+
+Treat the token like a password: Micro.blog app tokens have full account access. CrossPoint Sync
+encrypts the token at rest using `TOKEN_ENC_KEY`.
+
 ## Point your reader at it
 
 - **KOReader:** Tools → Progress sync → Custom sync server → `http://your-host:8080`

@@ -225,7 +225,7 @@ const LANDING = shell(
      <div class="svc"><div class="lead"><img class="svc-icon" src="/icons/hardcover.png" alt="" width="34" height="34"><div><div class="name">Hardcover</div>
        <div class="desc">Keep your Hardcover shelf and reading progress up to date automatically.</div></div></div>
        <span class="pill warn">beta</span></div>
-     <div class="svc"><div class="lead"><img class="svc-icon" src="/icons/microblog.png" alt="" width="34" height="34" onerror="this.style.display='none'"><div><div class="name">Micro.blog</div>
+     <div class="svc"><div class="lead"><img class="svc-icon" src="/icons/microblog.png" alt="" width="34" height="34"><div><div class="name">Micro.blog</div>
        <div class="desc">Keep your Currently reading and Finished reading bookshelves up to date automatically.</div></div></div>
        <span class="pill">ready</span></div>
      <div class="svc"><div class="lead"><img class="svc-icon" src="/icons/audiobookshelf.png" alt="" width="34" height="34"><div><div class="name">Audiobookshelf</div>
@@ -529,11 +529,21 @@ async function jsend(u, m='POST', body){ const r = await fetch(u,{method:m,heade
 
 const HINTS = {
   hardcover: 'Paste your Hardcover API token from hardcover.app/account/api. Syncs your reading progress and shelf status.',
-  microblog: 'Paste your Micro.blog app token from Account → Edit Apps. Keeps your Currently reading and Finished reading bookshelves in sync.',
+  microblog: 'Connect an app token to keep your Currently reading and Finished reading bookshelves in sync.',
   readwise: 'Paste your Readwise access token from readwise.io/access_token. Syncs your highlights.',
   kosync: 'Mirror your reading progress to another KOReader-compatible (KOSync) server, so your other devices see it too.',
   bookfusion: 'Connect your BookFusion account to sync reading progress. You will approve the request on bookfusion.com.',
   audiobookshelf: 'Sync your reading position to the matching audiobook on your Audiobookshelf server. Create an API key in Audiobookshelf under Settings, Users, API Keys.'
+};
+
+const TOKEN_HELP = {
+  microblog: '<div class="muted" style="margin-bottom:18px"><p style="margin-top:0"><b>Get a Micro.blog app token:</b></p>'
+    + '<ol style="padding-left:20px;margin-bottom:10px">'
+    + '<li>Sign in to Micro.blog in another tab.</li>'
+    + '<li>Open <a href="https://micro.blog/account/apps" target="_blank" rel="noopener noreferrer">Account → App tokens</a>.</li>'
+    + '<li>Create a separate token for <b>CrossPoint Sync</b>.</li>'
+    + '<li>Copy the new token and paste it below.</li>'
+    + '</ol><p style="margin-bottom:0">Treat this token like a password: it has full access to your Micro.blog account. CrossPoint Sync encrypts it before storing it.</p></div>'
 };
 
 (async () => {
@@ -553,7 +563,7 @@ function done() { location.href = '/account'; }
 function render(conn) {
   const f = $('form');
   if (conn.credential_kind === 'token') {
-    f.innerHTML = '<label>API token</label><input id="tok" class="mono" placeholder="paste token">'
+    f.innerHTML = (TOKEN_HELP[ID] || '') + '<label>API token</label><input id="tok" class="mono" placeholder="paste token">'
       + '<button class="primary full mt" id="go">Link ' + esc(conn.name) + '</button><div class="err" id="e"></div>';
     $('go').onclick = async () => {
       $('e').textContent = '';
