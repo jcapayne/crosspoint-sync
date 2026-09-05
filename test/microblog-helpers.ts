@@ -1,0 +1,105 @@
+import type { HttpTransport } from '../src/connectors/types.js';
+
+export interface FakeMicroblogBook {
+  id: string;
+  title: string;
+  author: string;
+}
+
+export type FakeShelfType = 'reading' | 'finished' | 'to-read' | 'loans' | 'holds';
+
+export interface FakeMicroblogOptions {
+  shelves?: Partial<Record<FakeShelfType, FakeMicroblogBook[]>>;
+  createResponse?: unknown;
+  omitShelves?: FakeShelfType[];
+}
+
+export function makeMicroblogTransport(options: FakeMicroblogOptions = {}) {
+  const calls: Array<{
+    url: string; method: string; headers?: Record<string, string>; body?: string;
+  }> = [];
+  const failures = new Map<string, { status: number; body: unknown }>();
+  const ids: Record<FakeShelfType, string> = {
+    reading: '10', finished: '11', 'to-read': '12', loans: '13', holds: '14',
+  };
+  const shelves = new Map<FakeShelfType, FakeMicroblogBook[]>(
+    (Object.keys(ids) as FakeShelfType[]).map((type) => [
+      type, [...(options.shelves?.[type] ?? [])],
+    ])
+  );
+  let mutateCreate = true;
+  let nextId = 1000;
+  const transport: HttpTransport = async (url, init) => {
+    calls.push({ url, method: init.method, headers: init.headers, body: init.body });
+    const parsed = new URL(url);
+    const forced = failures.get(`${init.method} ${parsed.pathname}`);
+    if (forced) return response(forced.status, forced.body);
+    if (init.method === 'GET' && parsed.pathname === '/books/bookshelves') {
+      return response(200, {
+        items: (Object.keys(ids) as FakeShelfType[])
+          .filter((type) => !options.omitShelves?.includes(type))
+          .map((type) => ({ id: Number(ids[type]), title: type, _microblog: { type } })),
+      });
+    }
+    const shelfMatch = parsed.pathname.match(/^\/books\/bookshelves\/(\d+)$/);
+    if (init.method === 'GET' && shelfMatch) {
+      const type = (Object.keys(ids) as FakeShelfType[]).find((key) => ids[key] === shelfMatch[1]);
+      if (!type) return response(404, {});
+      return response(200, {
+        items: shelves.get(type)!.map((book) => ({
+          id: Number(book.id), title: book.title,
+          authors: [{ name: book.author }], _microblog: { isbn: '' },
+        })),
+      });
+    }
+    if (init.method === 'POST' && parsed.pathname === '/books') {
+      const form = new URLSearchParams(init.body);
+      const type = (Object.keys(ids) as FakeShelfType[]).find((key) => ids[key] === form.get('bookshelf_id'));
+      if (!type) return response(422, {});
+      const configured = options.createResponse ?? {};
+      const rawId = (configured as any)?.id ?? (configured as any)?.book_id
+        ?? (configured as any)?.item?.id ?? (configured as any)?.book?.id;
+      const id = rawId == null ? String(nextId++) : String(rawId);
+      if (mutateCreate) {
+        shelves.get(type)!.push({ id, title: form.get('title')!, author: form.get('author')! });
+      }
+      return response(200, configured);
+    }
+    const assignMatch = parsed.pathname.match(/^\/books\/bookshelves\/(\d+)\/assign$/);
+    if (init.method === 'POST' && assignMatch) {
+      const target = (Object.keys(ids) as FakeShelfType[]).find((key) => ids[key] === assignMatch[1]);
+      const bookId = new URLSearchParams(init.body).get('book_id');
+      const book = [...shelves.values()].flat().find((item) => item.id === bookId);
+      if (!target || !book) return response(422, {});
+      if (!shelves.get(target)!.some((item) => item.id === book.id)) shelves.get(target)!.push(book);
+      return response(200, {});
+    }
+    const removeMatch = parsed.pathname.match(/^\/books\/bookshelves\/(\d+)\/remove\/([^/]+)$/);
+    if (init.method === 'DELETE' && removeMatch) {
+      const target = (Object.keys(ids) as FakeShelfType[]).find((key) => ids[key] === removeMatch[1]);
+      if (!target) return response(404, {});
+      shelves.set(target, shelves.get(target)!.filter((item) => item.id !== decodeURIComponent(removeMatch[2])));
+      return response(200, {});
+    }
+    throw new Error(`unexpected Micro.blog request: ${init.method} ${parsed.pathname}`);
+  };
+
+  return {
+    transport,
+    calls,
+    shelves,
+    fail(method: string, path: string, status: number, body: unknown = {}) {
+      failures.set(`${method} ${path}`, { status, body });
+    },
+    disableCreateMutation() { mutateCreate = false; },
+    clearCalls() { calls.length = 0; },
+  };
+}
+
+function response(status: number, body: unknown) {
+  return {
+    status,
+    text: async () => typeof body === 'string' ? body : JSON.stringify(body),
+    json: async () => body,
+  };
+}
