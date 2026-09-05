@@ -21,7 +21,7 @@ const FAVICON = fs.readFileSync(path.join(ASSETS_DIR, 'favicon.png'));
 // Service app icons, served at /icons/:id.png. Loaded once at boot; a missing
 // file just means no icon for that service (the UI falls back gracefully).
 const SERVICE_ICONS = new Map<string, Buffer>();
-for (const id of ['kosync', 'hardcover', 'audiobookshelf', 'bookfusion', 'readwise']) {
+for (const id of ['kosync', 'hardcover', 'audiobookshelf', 'bookfusion', 'readwise', 'microblog']) {
   try {
     SERVICE_ICONS.set(id, fs.readFileSync(path.join(ASSETS_DIR, 'icons', `${id}.png`)));
   } catch {
@@ -225,6 +225,9 @@ const LANDING = shell(
      <div class="svc"><div class="lead"><img class="svc-icon" src="/icons/hardcover.png" alt="" width="34" height="34"><div><div class="name">Hardcover</div>
        <div class="desc">Keep your Hardcover shelf and reading progress up to date automatically.</div></div></div>
        <span class="pill warn">beta</span></div>
+     <div class="svc"><div class="lead"><img class="svc-icon" src="/icons/microblog.png" alt="" width="34" height="34"><div><div class="name">Micro.blog</div>
+       <div class="desc">Keep your Currently reading and Finished reading bookshelves up to date automatically.</div></div></div>
+       <span class="pill">ready</span></div>
      <div class="svc"><div class="lead"><img class="svc-icon" src="/icons/audiobookshelf.png" alt="" width="34" height="34"><div><div class="name">Audiobookshelf</div>
        <div class="desc">Keep your place between the ebook and the audiobook, both ways. Read some, then pick up listening right where you left off.</div></div></div>
        <span class="pill">ready</span></div>
@@ -526,6 +529,7 @@ async function jsend(u, m='POST', body){ const r = await fetch(u,{method:m,heade
 
 const HINTS = {
   hardcover: 'Paste your Hardcover API token from hardcover.app/account/api. Syncs your reading progress and shelf status.',
+  microblog: 'Paste your Micro.blog app token from Account → Edit Apps. Keeps your Currently reading and Finished reading bookshelves in sync.',
   readwise: 'Paste your Readwise access token from readwise.io/access_token. Syncs your highlights.',
   kosync: 'Mirror your reading progress to another KOReader-compatible (KOSync) server, so your other devices see it too.',
   bookfusion: 'Connect your BookFusion account to sync reading progress. You will approve the request on bookfusion.com.',
