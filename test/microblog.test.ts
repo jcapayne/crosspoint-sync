@@ -192,6 +192,43 @@ describe('Micro.blog shelf reconciliation', () => {
     expect(fake.calls.filter((call) => call.method !== 'GET')).toHaveLength(0);
   });
 
+  it('retries a transient 404 while loading a bookshelf and reports only safe request context', async () => {
+    const fake = makeMicroblogTransport({ shelves: { reading: [book] } });
+    fake.fail('GET', '/books/bookshelves/10', 404);
+
+    const error = await _microblog
+      .reconcileBook({ token: 'secret-token-that-must-not-leak' }, { externalId: '50', confidence: 1 }, EV, fake.transport)
+      .catch((caught) => caught);
+
+    expect(error).toMatchObject({
+      message: 'Micro.blog GET /books/bookshelves/10 failed (404)',
+      retryable: true,
+      needsReauth: false,
+    });
+    expect(error.message).not.toContain('secret-token-that-must-not-leak');
+  });
+
+  it('treats a 404 removal as an idempotent success', async () => {
+    const fake = makeMicroblogTransport({ shelves: { 'to-read': [book] } });
+    fake.fail('DELETE', '/books/bookshelves/12/remove/50', 404);
+
+    await expect(
+      _microblog.reconcileBook(CRED, { externalId: '50', confidence: 1 }, EV, fake.transport)
+    ).resolves.toEqual({ ok: true });
+  });
+
+  it('keeps an assignment 404 permanent and includes the safe request path', async () => {
+    const fake = makeMicroblogTransport({ shelves: { 'to-read': [book] } });
+    fake.fail('POST', '/books/bookshelves/10/assign', 404);
+
+    await expect(
+      _microblog.reconcileBook(CRED, { externalId: '50', confidence: 1 }, EV, fake.transport)
+    ).rejects.toMatchObject({
+      message: 'Micro.blog POST /books/bookshelves/10/assign failed (404)',
+      retryable: false,
+    });
+  });
+
   it('classifies authentication, rate-limit, server, and request failures', async () => {
     for (const [status, retryable, needsReauth] of [
       [401, false, true], [403, false, true], [429, true, false],

@@ -41,15 +41,16 @@ function destination(ev?: OutboundEvent): 'reading' | 'finished' {
     : 'reading';
 }
 
-function operationError(status: number): ConnectorOperationError | null {
+function operationError(status: number, method: string, path: string): ConnectorOperationError | null {
+  const context = `Micro.blog ${method} ${path} failed (${status})`;
   if (status === 401 || status === 403) {
-    return new ConnectorOperationError('invalid token', false, true);
+    return new ConnectorOperationError(`${context}: invalid token`, false, true);
   }
-  if (status === 429 || status >= 500) {
-    return new ConnectorOperationError(`Micro.blog request failed (${status})`, true);
+  if ((status === 404 && method === 'GET') || status === 429 || status >= 500) {
+    return new ConnectorOperationError(context, true);
   }
   if (status >= 400) {
-    return new ConnectorOperationError(`Micro.blog request failed (${status})`, false);
+    return new ConnectorOperationError(context, false);
   }
   return null;
 }
@@ -71,9 +72,10 @@ async function request(
     });
   } catch (error) {
     if (error instanceof ConnectorOperationError) throw error;
-    throw new ConnectorOperationError('Micro.blog request failed', true);
+    throw new ConnectorOperationError(`Micro.blog ${init.method} ${path} failed`, true);
   }
-  const failure = operationError(response.status);
+  if (response.status === 404 && init.method === 'DELETE') return {};
+  const failure = operationError(response.status, init.method, path);
   if (failure) throw failure;
   if (init.method === 'POST') {
     try {
