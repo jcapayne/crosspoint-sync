@@ -136,3 +136,60 @@ describe('Micro.blog book creation', () => {
     });
   });
 });
+
+describe('Micro.blog shelf reconciliation', () => {
+  const book = { id: '50', title: DOC.title!, author: DOC.author! };
+
+  it('assigns currently reading before removing want to read', async () => {
+    const fake = makeMicroblogTransport({ shelves: { 'to-read': [book] } });
+    expect(await _microblog.reconcileBook(CRED, { externalId: '50', confidence: 1 }, EV, fake.transport)).toEqual({ ok: true });
+    expect(fake.shelves.get('reading')).toContainEqual(book);
+    expect(fake.shelves.get('to-read')).not.toContainEqual(book);
+    const writes = fake.calls.filter((call) => call.method !== 'GET');
+    expect(writes.map((call) => call.method)).toEqual(['POST', 'DELETE']);
+    expect(writes[0].url).toContain('/books/bookshelves/10/assign');
+    expect(writes[1].url).toContain('/books/bookshelves/12/remove/50');
+  });
+
+  it('moves a currently reading book to finished', async () => {
+    const fake = makeMicroblogTransport({ shelves: { reading: [book] } });
+    const finished = { kind: 'finished' as const, document: 'd', percentage: 1, timestamp: 2 };
+    await _microblog.reconcileBook(CRED, { externalId: '50', confidence: 1 }, finished, fake.transport);
+    expect(fake.shelves.get('finished')).toContainEqual(book);
+    expect(fake.shelves.get('reading')).not.toContainEqual(book);
+  });
+
+  it('moves a finished book back to currently reading for a later partial event', async () => {
+    const fake = makeMicroblogTransport({ shelves: { finished: [book] } });
+    await _microblog.reconcileBook(CRED, { externalId: '50', confidence: 1 }, EV, fake.transport);
+    expect(fake.shelves.get('reading')).toContainEqual(book);
+    expect(fake.shelves.get('finished')).not.toContainEqual(book);
+  });
+
+  it('preserves loans and holds while assigning reading', async () => {
+    const fake = makeMicroblogTransport({ shelves: { loans: [book], holds: [book] } });
+    await _microblog.reconcileBook(CRED, { externalId: '50', confidence: 1 }, EV, fake.transport);
+    expect(fake.shelves.get('loans')).toContainEqual(book);
+    expect(fake.shelves.get('holds')).toContainEqual(book);
+    expect(fake.calls.filter((call) => call.method === 'DELETE')).toHaveLength(0);
+  });
+
+  it('does no writes when already in the desired managed state', async () => {
+    const fake = makeMicroblogTransport({ shelves: { reading: [book] } });
+    await _microblog.reconcileBook(CRED, { externalId: '50', confidence: 1 }, EV, fake.transport);
+    expect(fake.calls.filter((call) => call.method !== 'GET')).toHaveLength(0);
+  });
+
+  it('classifies authentication, rate-limit, server, and request failures', async () => {
+    for (const [status, retryable, needsReauth] of [
+      [401, false, true], [403, false, true], [429, true, false],
+      [500, true, false], [422, false, false],
+    ] as const) {
+      const fake = makeMicroblogTransport({ shelves: { reading: [book] } });
+      fake.fail('GET', '/books/bookshelves', status);
+      await expect(
+        _microblog.reconcileBook(CRED, { externalId: '50', confidence: 1 }, EV, fake.transport)
+      ).rejects.toMatchObject({ retryable, needsReauth });
+    }
+  });
+});

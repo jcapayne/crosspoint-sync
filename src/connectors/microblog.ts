@@ -6,7 +6,9 @@ import {
   type HttpTransport,
   type Match,
   type OutboundEvent,
+  type PushResult,
   type ValidateResult,
+  type Connector,
 } from './types.js';
 
 const BASE_URL = 'https://micro.blog';
@@ -140,8 +142,11 @@ async function loadBooks(
   return extractBooks(payload, shelf.type);
 }
 
-async function loadInventory(cred: Credential, http: HttpTransport): Promise<ShelfBook[]> {
-  const shelves = await loadShelves(cred, http);
+async function loadInventoryForShelves(
+  cred: Credential,
+  shelves: ShelfDefinition[],
+  http: HttpTransport
+): Promise<ShelfBook[]> {
   const byId = new Map<string, ShelfBook>();
   for (const shelf of shelves) {
     for (const book of await loadBooks(cred, shelf, http)) {
@@ -151,6 +156,10 @@ async function loadInventory(cred: Credential, http: HttpTransport): Promise<She
     }
   }
   return [...byId.values()];
+}
+
+async function loadInventory(cred: Credential, http: HttpTransport): Promise<ShelfBook[]> {
+  return loadInventoryForShelves(cred, await loadShelves(cred, http), http);
 }
 
 async function validateCredential(cred: Credential, http: HttpTransport): Promise<ValidateResult> {
@@ -237,9 +246,62 @@ async function createBook(
   throw new ConnectorOperationError('Micro.blog created the book but did not return or expose its id', false);
 }
 
+async function reconcileBook(
+  cred: Credential,
+  match: Match,
+  ev: OutboundEvent,
+  http: HttpTransport
+): Promise<PushResult> {
+  const target = destination(ev);
+  const opposite = target === 'reading' ? 'finished' : 'reading';
+  const shelves = await loadShelves(cred, http);
+  const shelfByType = new Map(shelves.map((shelf) => [shelf.type, shelf]));
+  const targetShelf = shelfByType.get(target);
+  if (!targetShelf) {
+    throw new ConnectorOperationError(`Micro.blog ${target} shelf is unavailable`, false);
+  }
+
+  const inventory = await loadInventoryForShelves(cred, shelves, http);
+  const memberships = inventory.find((book) => book.externalId === match.externalId)?.memberships ?? new Set<ShelfType>();
+  const token = tokenOf(cred);
+  if (!memberships.has(target)) {
+    await request(http, token, `/books/bookshelves/${encodeURIComponent(targetShelf.id)}/assign`, {
+      method: 'POST',
+      body: new URLSearchParams({ book_id: match.externalId }).toString(),
+    });
+  }
+  for (const shelfType of ['to-read', opposite] as const) {
+    if (!memberships.has(shelfType)) continue;
+    const shelf = shelfByType.get(shelfType);
+    if (!shelf) continue;
+    await request(http, token, `/books/bookshelves/${encodeURIComponent(shelf.id)}/remove/${encodeURIComponent(match.externalId)}`, {
+      method: 'DELETE',
+    });
+  }
+  return { ok: true };
+}
+
+export const microblogConnector: Connector = {
+  id: 'microblog',
+  displayName: 'Micro.blog',
+  tier: 1,
+  capabilities: { read: false, write: true },
+  carries: ['progress', 'finished'],
+  credentialKind: 'token',
+  experimental: false,
+  matchBy: 'metadata',
+  shouldPush: (ev) => !(ev.kind === 'progress' && (ev.percentage ?? 0) <= 0),
+  validate: validateCredential,
+  match: matchBook,
+  createBook,
+  push: reconcileBook,
+};
+
 export const _microblog = {
   validateCredential,
   extractBooks,
   matchBook,
   createBook,
+  reconcileBook,
+  destination,
 };
