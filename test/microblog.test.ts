@@ -87,6 +87,12 @@ describe('Micro.blog book creation', () => {
     expect(fake.calls.filter((call) => call.url.endsWith('/books/bookshelves/10'))).toHaveLength(1);
   });
 
+  it('recovers the new id after an empty 204 create response', async () => {
+    const fake = makeMicroblogTransport({ createResponse: '', createStatus: 204 });
+    expect((await _microblog.createBook(CRED, DOC, EV, fake.transport))?.externalId).toBe('1000');
+    expect(fake.calls.filter((call) => call.url.endsWith('/books/bookshelves/10'))).toHaveLength(1);
+  });
+
   it('does not create with incomplete metadata', async () => {
     const fake = makeMicroblogTransport();
     expect(await _microblog.createBook(CRED, { ...DOC, author: null }, EV, fake.transport)).toBeNull();

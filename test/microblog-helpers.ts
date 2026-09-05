@@ -11,6 +11,7 @@ export type FakeShelfType = 'reading' | 'finished' | 'to-read' | 'loans' | 'hold
 export interface FakeMicroblogOptions {
   shelves?: Partial<Record<FakeShelfType, FakeMicroblogBook[]>>;
   createResponse?: unknown;
+  createStatus?: number;
   omitShelves?: FakeShelfType[];
 }
 
@@ -63,7 +64,7 @@ export function makeMicroblogTransport(options: FakeMicroblogOptions = {}) {
       if (mutateCreate) {
         shelves.get(type)!.push({ id, title: form.get('title')!, author: form.get('author')! });
       }
-      return response(200, configured);
+      return response(options.createStatus ?? 200, configured);
     }
     const assignMatch = parsed.pathname.match(/^\/books\/bookshelves\/(\d+)\/assign$/);
     if (init.method === 'POST' && assignMatch) {
@@ -97,9 +98,10 @@ export function makeMicroblogTransport(options: FakeMicroblogOptions = {}) {
 }
 
 function response(status: number, body: unknown) {
+  const serialized = typeof body === 'string' ? body : JSON.stringify(body);
   return {
     status,
-    text: async () => typeof body === 'string' ? body : JSON.stringify(body),
-    json: async () => body,
+    text: async () => serialized,
+    json: async () => JSON.parse(serialized),
   };
 }
