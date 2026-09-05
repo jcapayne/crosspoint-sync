@@ -225,7 +225,7 @@ const LANDING = shell(
      <div class="svc"><div class="lead"><img class="svc-icon" src="/icons/hardcover.png" alt="" width="34" height="34"><div><div class="name">Hardcover</div>
        <div class="desc">Keep your Hardcover shelf and reading progress up to date automatically.</div></div></div>
        <span class="pill warn">beta</span></div>
-     <div class="svc"><div class="lead"><img class="svc-icon" src="/icons/microblog.png" alt="" width="34" height="34"><div><div class="name">Micro.blog</div>
+     <div class="svc"><div class="lead"><img class="svc-icon" src="/icons/microblog.png" alt="" width="34" height="34" onerror="this.style.display='none'"><div><div class="name">Micro.blog</div>
        <div class="desc">Keep your Currently reading and Finished reading bookshelves up to date automatically.</div></div></div>
        <span class="pill">ready</span></div>
      <div class="svc"><div class="lead"><img class="svc-icon" src="/icons/audiobookshelf.png" alt="" width="34" height="34"><div><div class="name">Audiobookshelf</div>
