@@ -74,9 +74,9 @@ async function request(
   const failure = operationError(response.status);
   if (failure) throw failure;
   if (init.method === 'POST') {
-    const body = await response.text();
-    if (!body.trim()) return {};
     try {
+      const body = await response.text();
+      if (!body.trim()) return {};
       return JSON.parse(body);
     } catch {
       throw new ConnectorOperationError('Micro.blog returned malformed JSON', true);

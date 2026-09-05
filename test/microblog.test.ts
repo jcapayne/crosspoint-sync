@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { _microblog } from '../src/connectors/microblog.js';
+import type { HttpTransport } from '../src/connectors/types.js';
 import { makeMicroblogTransport } from './microblog-helpers.js';
 
 const CRED = { token: 'mb-token' };
@@ -91,6 +92,18 @@ describe('Micro.blog book creation', () => {
     const fake = makeMicroblogTransport({ createResponse: '', createStatus: 204 });
     expect((await _microblog.createBook(CRED, DOC, EV, fake.transport))?.externalId).toBe('1000');
     expect(fake.calls.filter((call) => call.url.endsWith('/books/bookshelves/10'))).toHaveLength(1);
+  });
+
+  it('classifies successful create body read failures as retryable', async () => {
+    const fake = makeMicroblogTransport();
+    const transport: HttpTransport = async (url, init) => {
+      const response = await fake.transport(url, init);
+      if (init.method !== 'POST' || !url.endsWith('/books')) return response;
+      return { ...response, text: async () => { throw new Error('body stream interrupted'); } };
+    };
+    await expect(_microblog.createBook(CRED, DOC, EV, transport)).rejects.toMatchObject({
+      retryable: true,
+    });
   });
 
   it('does not create with incomplete metadata', async () => {
