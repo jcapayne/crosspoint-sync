@@ -1,8 +1,9 @@
-import { afterEach, beforeEach, expect, it } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { resetEncryptionKeyCache } from '../src/crypto/secrets.js';
 import { enqueue } from '../src/connectors/queue.js';
 import { drainQueue } from '../src/connectors/runner.js';
 import { saveMatch } from '../src/connectors/store.js';
+import type { HttpTransport } from '../src/connectors/types.js';
 import { DOC, makeTestApp, registerUser, type TestServer } from './helpers.js';
 import { makeMicroblogTransport } from './microblog-helpers.js';
 
@@ -88,6 +89,51 @@ it('creates a finished event directly on Finished reading', async () => {
   await sync(app, headers, 0.99);
   await drainQueue(db, fake.transport, 10);
   expect(fake.shelves.get('finished')?.some((book) => book.title === 'Foundryside')).toBe(true);
+  expect(queueStatus(db)).toEqual({ status: 'done' });
+});
+
+it('does not let an older progress retry regress a newer finished state', async () => {
+  const book = { id: '92', title: META.title, author: META.author! };
+  const fake = makeMicroblogTransport({ shelves: { reading: [book] } });
+  const { app, db, headers, userId } = await setup(fake);
+  saveMatch(db, userId, 'microblog', DOC, { externalId: book.id, confidence: 1 }, 'auto');
+
+  let failShelfLookup = true;
+  const failOnce: HttpTransport = async (url, init) => {
+    if (failShelfLookup && init.method === 'GET' && new URL(url).pathname === '/books/bookshelves') {
+      failShelfLookup = false;
+      return {
+        status: 500,
+        text: async () => JSON.stringify({ error: 'temporary' }),
+        json: async () => ({ error: 'temporary' }),
+      };
+    }
+    return fake.transport(url, init);
+  };
+
+  await sync(app, headers, 0.4);
+  const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  try {
+    await drainQueue(db, failOnce, 10);
+  } finally {
+    errorLog.mockRestore();
+  }
+  const retry = db.prepare(
+    `SELECT status, attempts, next_try_at FROM connector_queue
+     WHERE connector_id = 'microblog' AND document = ? AND kind = 'progress'`
+  ).get(DOC) as { status: string; attempts: number; next_try_at: number };
+  expect(retry).toMatchObject({ status: 'pending', attempts: 1 });
+
+  await sync(app, headers, 0.99);
+  expect(await drainQueue(db, fake.transport, 10)).toBe(1);
+  expect(fake.shelves.get('finished')).toContainEqual(book);
+  expect(fake.shelves.get('reading')).not.toContainEqual(book);
+
+  fake.clearCalls();
+  expect(await drainQueue(db, fake.transport, 10, retry.next_try_at)).toBe(1);
+  expect(fake.calls).toHaveLength(0);
+  expect(fake.shelves.get('finished')).toContainEqual(book);
+  expect(fake.shelves.get('reading')).not.toContainEqual(book);
   expect(queueStatus(db)).toEqual({ status: 'done' });
 });
 

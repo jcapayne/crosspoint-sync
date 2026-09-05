@@ -14,6 +14,7 @@ import {
   documentMeta,
   getAccount,
   getMatch,
+  latestPercentage,
   saveMatch,
   setAccountStatus,
 } from './store.js';
@@ -116,7 +117,10 @@ export async function processRow(db: DB, row: QueueRow, http: HttpTransport): Pr
   }
 
   const ev = JSON.parse(row.payload) as OutboundEvent;
-  if (connector.shouldPush?.(ev) === false) {
+  if (connector.shouldPush?.(
+    ev,
+    latestPercentage(db, row.user_id, row.document)
+  ) === false) {
     markDone(db, row.id);
     return;
   }

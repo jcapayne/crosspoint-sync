@@ -113,7 +113,7 @@ async function loadShelves(cred: Credential, http: HttpTransport): Promise<Shelf
   });
 }
 
-export function extractBooks(payload: unknown, membership: ShelfType): ShelfBook[] {
+function extractBooks(payload: unknown, membership: ShelfType): ShelfBook[] {
   return itemsOf(payload).flatMap((item): ShelfBook[] => {
     if (!item || typeof item !== 'object') return [];
     const raw = item as { id?: unknown; title?: unknown; authors?: unknown };
@@ -281,6 +281,14 @@ async function reconcileBook(
   return { ok: true };
 }
 
+function shouldPush(ev: OutboundEvent, canonicalPercentage?: number | null): boolean {
+  if (ev.kind === 'progress' && (ev.percentage ?? 0) <= 0) return false;
+  if (canonicalPercentage == null) return true;
+  if (canonicalPercentage <= 0) return false;
+  const canonicalDestination = canonicalPercentage >= 0.98 ? 'finished' : 'reading';
+  return destination(ev) === canonicalDestination;
+}
+
 export const microblogConnector: Connector = {
   id: 'microblog',
   displayName: 'Micro.blog',
@@ -290,7 +298,7 @@ export const microblogConnector: Connector = {
   credentialKind: 'token',
   experimental: false,
   matchBy: 'metadata',
-  shouldPush: (ev) => !(ev.kind === 'progress' && (ev.percentage ?? 0) <= 0),
+  shouldPush,
   validate: validateCredential,
   match: matchBook,
   createBook,

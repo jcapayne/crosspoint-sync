@@ -82,6 +82,18 @@ describe('Micro.blog book creation', () => {
     expect(new URLSearchParams(create!.body!).get('author')).toBe(DOC.author);
   });
 
+  it.each([
+    ['book_id', { book_id: 91 }, '91'],
+    ['item.id', { item: { id: '92' } }, '92'],
+    ['book.id', { book: { id: 93 } }, '93'],
+  ])('accepts a successful create response id from %s', async (_shape, createResponse, expectedId) => {
+    const fake = makeMicroblogTransport({ createResponse });
+    fake.disableCreateMutation();
+
+    expect((await _microblog.createBook(CRED, DOC, EV, fake.transport))?.externalId).toBe(expectedId);
+    expect(fake.calls.filter((call) => call.url.endsWith('/books/bookshelves/10'))).toHaveLength(0);
+  });
+
   it('recovers the new id from the destination shelf when the response omits it', async () => {
     const fake = makeMicroblogTransport({ createResponse: {} });
     expect((await _microblog.createBook(CRED, DOC, EV, fake.transport))?.externalId).toBeTruthy();

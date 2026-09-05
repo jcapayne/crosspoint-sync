@@ -156,7 +156,7 @@ export interface Connector {
   validate(cred: Credential, http: HttpTransport): Promise<ValidateResult>;
 
   /** Return false to acknowledge an event without matching or pushing it. */
-  shouldPush?(ev: OutboundEvent): boolean;
+  shouldPush?(ev: OutboundEvent, canonicalPercentage?: number | null): boolean;
 
   /** Resolve a document to an external book id. Null = no confident match. */
   match(
