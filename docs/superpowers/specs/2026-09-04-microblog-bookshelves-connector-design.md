@@ -31,7 +31,7 @@ The connector uses the documented Books API operations:
 - `POST /books/bookshelves/:id/assign` assigns an existing `book_id` to a shelf.
 - `DELETE /books/bookshelves/:shelfId/remove/:bookId` removes a book from a shelf.
 
-Micro.blog does not expose a catalog-search API, so the user's relevant shelves are the connector's complete automatic lookup pool.
+Automatic matching searches only the user's relevant shelves, preserving stable bookshelf IDs and avoiding accidental creation. For manual matching, the Matches page uses Micro.blog's authenticated `GET /books/search` JSON Feed endpoint to offer catalog results by title. It retains each result's `_microblog.isbn` so a catalog result can be resolved onto a shelf with the `isbn` assignment parameter instead of misusing an ISBN-shaped feed ID as an integer `book_id`.
 
 ## Connector Contract
 

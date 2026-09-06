@@ -3,6 +3,7 @@ import {
   ConnectorOperationError,
   type Credential,
   type DocumentMeta,
+  type ExternalBook,
   type HttpTransport,
   type Match,
   type OutboundEvent,
@@ -25,6 +26,7 @@ interface ShelfBook extends Candidate {
   externalId: string;
   title: string;
   author: string;
+  isbn: string | null;
   memberships: Set<ShelfType>;
 }
 
@@ -60,7 +62,7 @@ async function request(
   http: HttpTransport,
   token: string,
   path: string,
-  init: { method: string; body?: string }
+  init: { method: string; body?: string; headers?: Record<string, string> }
 ): Promise<unknown> {
   let response;
   try {
@@ -68,6 +70,7 @@ async function request(
       ...init,
       headers: {
         authorization: `Bearer ${token}`,
+        ...init.headers,
         ...(init.body ? { 'content-type': 'application/x-www-form-urlencoded' } : {}),
       },
     });
@@ -110,6 +113,23 @@ function itemsOf(payload: unknown): unknown[] {
   return (payload as { items: unknown[] }).items;
 }
 
+function authorsOf(value: unknown): string {
+  const authors = Array.isArray(value) ? value : [];
+  return authors
+    .flatMap((author) => author && typeof author === 'object'
+      && typeof (author as { name?: unknown }).name === 'string'
+      ? [(author as { name: string }).name.trim()]
+      : [])
+    .filter(Boolean)
+    .join(', ');
+}
+
+function isbnOf(value: unknown): string | null {
+  if (typeof value !== 'string' && typeof value !== 'number') return null;
+  const isbn = String(value).trim();
+  return isbn || null;
+}
+
 async function loadShelves(cred: Credential, http: HttpTransport): Promise<ShelfDefinition[]> {
   const payload = await request(http, tokenOf(cred), '/books/bookshelves', { method: 'GET' });
   return itemsOf(payload).flatMap((item): ShelfDefinition[] => {
@@ -124,18 +144,23 @@ async function loadShelves(cred: Credential, http: HttpTransport): Promise<Shelf
 function extractBooks(payload: unknown, membership: ShelfType): ShelfBook[] {
   return itemsOf(payload).flatMap((item): ShelfBook[] => {
     if (!item || typeof item !== 'object') return [];
-    const raw = item as { id?: unknown; title?: unknown; authors?: unknown };
+    const raw = item as {
+      id?: unknown;
+      title?: unknown;
+      authors?: unknown;
+      _microblog?: { isbn?: unknown };
+    };
     if (raw.id == null || typeof raw.title !== 'string' || !raw.title.trim()) return [];
     const externalId = String(raw.id).trim();
     if (!externalId) return [];
-    const authors = Array.isArray(raw.authors) ? raw.authors : [];
-    const author = authors
-      .flatMap((value) => value && typeof value === 'object' && typeof (value as { name?: unknown }).name === 'string'
-        ? [(value as { name: string }).name.trim()]
-        : [])
-      .filter(Boolean)
-      .join(', ');
-    return [{ externalId, title: raw.title, author, memberships: new Set([membership]) }];
+    const author = authorsOf(raw.authors);
+    return [{
+      externalId,
+      title: raw.title,
+      author,
+      isbn: isbnOf(raw._microblog?.isbn),
+      memberships: new Set([membership]),
+    }];
   });
 }
 
@@ -182,6 +207,39 @@ async function validateCredential(cred: Credential, http: HttpTransport): Promis
   }
 }
 
+async function searchBooks(
+  cred: Credential,
+  query: string,
+  http: HttpTransport
+): Promise<ExternalBook[]> {
+  const payload = await request(
+    http,
+    tokenOf(cred),
+    `/books/search?q=${encodeURIComponent(query)}&format=jsonfeed`,
+    { method: 'GET', headers: { accept: 'application/json' } }
+  );
+  return itemsOf(payload).flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const raw = item as {
+      id?: unknown;
+      title?: unknown;
+      authors?: unknown;
+      _microblog?: { isbn?: unknown };
+    };
+    if ((typeof raw.id !== 'string' && typeof raw.id !== 'number')
+      || typeof raw.title !== 'string' || !raw.title.trim()) return [];
+    const externalId = String(raw.id).trim();
+    if (!externalId) return [];
+    const author = authorsOf(raw.authors);
+    return [{
+      externalId,
+      title: raw.title,
+      author: author || null,
+      edition: isbnOf(raw._microblog?.isbn),
+    }];
+  });
+}
+
 async function matchBook(
   cred: Credential,
   doc: DocumentMeta,
@@ -209,6 +267,7 @@ async function matchBook(
   if (!decision.accepted || !decision.best) return null;
   return {
     externalId: decision.best.externalId,
+    externalEdition: candidates.find((book) => book.externalId === decision.best!.externalId)?.isbn,
     confidence: decision.best.score,
     title: decision.best.title,
     author: decision.best.author ?? null,
@@ -272,19 +331,29 @@ async function reconcileBook(
   }
 
   const inventory = await loadInventoryForShelves(cred, shelves, http);
-  const memberships = inventory.find((book) => book.externalId === match.externalId)?.memberships ?? new Set<ShelfType>();
+  const isbnHint = match.externalEdition
+    ?? (/^(?:\d{13}|\d{9}[\dXx])$/.test(match.externalId) ? match.externalId : null);
+  const inventoryBook = inventory.find((book) => book.externalId === match.externalId)
+    ?? (isbnHint
+      ? inventory.find((book) => book.isbn === isbnHint)
+      : undefined);
+  const memberships = inventoryBook?.memberships ?? new Set<ShelfType>();
+  const bookId = inventoryBook?.externalId ?? match.externalId;
   const token = tokenOf(cred);
   if (!memberships.has(target)) {
+    const assignment = new URLSearchParams();
+    if (inventoryBook || !isbnHint) assignment.set('book_id', bookId);
+    else assignment.set('isbn', isbnHint);
     await request(http, token, `/books/bookshelves/${encodeURIComponent(targetShelf.id)}/assign`, {
       method: 'POST',
-      body: new URLSearchParams({ book_id: match.externalId }).toString(),
+      body: assignment.toString(),
     });
   }
   for (const shelfType of ['to-read', opposite] as const) {
     if (!memberships.has(shelfType)) continue;
     const shelf = shelfByType.get(shelfType);
     if (!shelf) continue;
-    await request(http, token, `/books/bookshelves/${encodeURIComponent(shelf.id)}/remove/${encodeURIComponent(match.externalId)}`, {
+    await request(http, token, `/books/bookshelves/${encodeURIComponent(shelf.id)}/remove/${encodeURIComponent(bookId)}`, {
       method: 'DELETE',
     });
   }
@@ -310,6 +379,7 @@ export const microblogConnector: Connector = {
   matchBy: 'metadata',
   shouldPush,
   validate: validateCredential,
+  search: searchBooks,
   match: matchBook,
   createBook,
   push: reconcileBook,

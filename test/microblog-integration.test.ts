@@ -67,6 +67,35 @@ it('links Micro.blog and creates an unmatched progress book on Currently reading
   expect(queueStatus(db)).toEqual({ status: 'done' });
 });
 
+it('returns Micro.blog search options through the Matches endpoint', async () => {
+  const fake = makeMicroblogTransport({
+    searchItems: [{
+      id: 37779109,
+      title: 'Foundryside',
+      authors: [{ name: 'Robert Jackson Bennett' }],
+      _microblog: { isbn: '9781786487849' },
+    }],
+  });
+  const { app, headers } = await setup(fake);
+
+  const response = await app.request(
+    '/api/v1/connectors/microblog/search?q=Foundryside%20book',
+    { headers }
+  );
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({
+    books: [{
+      externalId: '37779109',
+      title: 'Foundryside',
+      author: 'Robert Jackson Bennett',
+      edition: '9781786487849',
+    }],
+  });
+  const request = fake.calls.find((call) => new URL(call.url).pathname === '/books/search');
+  expect(new URL(request!.url).searchParams.get('q')).toBe('Foundryside book');
+});
+
 it('acknowledges zero progress without any Micro.blog request', async () => {
   const fake = makeMicroblogTransport();
   const { app, db, headers } = await setup(fake);

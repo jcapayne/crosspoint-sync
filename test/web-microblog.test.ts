@@ -105,4 +105,27 @@ describe('Micro.blog web setup', () => {
     expect(fetches).toBe(1);
     expect(getElement('e').textContent).toContain('HTTPS');
   });
+
+  it('escapes apostrophes in catalog data embedded in match-picker attributes', async () => {
+    const { app } = makeTestApp();
+    const signup = await app.request('/auth/signup', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ handle: `web-picker-${Date.now()}` }),
+    });
+    const cookie = signup.headers.get('set-cookie')!.split(';')[0];
+    const html = await (await app.request('/review/microblog', {
+      headers: { cookie },
+    })).text();
+    const script = html.match(/<script>\n([\s\S]*?)\n<\/script>/)?.[1];
+    const escDeclaration = script?.match(/const esc = .*?;\n/)?.[0];
+
+    expect(escDeclaration).toBeTruthy();
+    const escaped = runInNewContext(`${escDeclaration}esc(input)`, {
+      input: `The Sorcerer's Stone' onmouseover="alert(1)`,
+    });
+    expect(escaped).toBe(
+      'The Sorcerer&#39;s Stone&#39; onmouseover=&quot;alert(1)',
+    );
+  });
 });

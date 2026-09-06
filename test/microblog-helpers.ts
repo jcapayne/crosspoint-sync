@@ -4,6 +4,7 @@ export interface FakeMicroblogBook {
   id: string;
   title: string;
   author: string;
+  isbn?: string;
 }
 
 export type FakeShelfType = 'reading' | 'finished' | 'to-read' | 'loans' | 'holds';
@@ -13,6 +14,7 @@ export interface FakeMicroblogOptions {
   createResponse?: unknown;
   createStatus?: number;
   omitShelves?: FakeShelfType[];
+  searchItems?: unknown[];
 }
 
 export function makeMicroblogTransport(options: FakeMicroblogOptions = {}) {
@@ -42,6 +44,9 @@ export function makeMicroblogTransport(options: FakeMicroblogOptions = {}) {
           .map((type) => ({ id: Number(ids[type]), title: type, _microblog: { type } })),
       });
     }
+    if (init.method === 'GET' && parsed.pathname === '/books/search') {
+      return response(200, { version: 'https://jsonfeed.org/version/1.1', items: options.searchItems ?? [] });
+    }
     const shelfMatch = parsed.pathname.match(/^\/books\/bookshelves\/(\d+)$/);
     if (init.method === 'GET' && shelfMatch) {
       const type = (Object.keys(ids) as FakeShelfType[]).find((key) => ids[key] === shelfMatch[1]);
@@ -49,7 +54,7 @@ export function makeMicroblogTransport(options: FakeMicroblogOptions = {}) {
       return response(200, {
         items: shelves.get(type)!.map((book) => ({
           id: Number(book.id), title: book.title,
-          authors: [{ name: book.author }], _microblog: { isbn: '' },
+          authors: [{ name: book.author }], _microblog: { isbn: book.isbn ?? '' },
         })),
       });
     }
@@ -69,8 +74,26 @@ export function makeMicroblogTransport(options: FakeMicroblogOptions = {}) {
     const assignMatch = parsed.pathname.match(/^\/books\/bookshelves\/(\d+)\/assign$/);
     if (init.method === 'POST' && assignMatch) {
       const target = (Object.keys(ids) as FakeShelfType[]).find((key) => ids[key] === assignMatch[1]);
-      const bookId = new URLSearchParams(init.body).get('book_id');
-      const book = [...shelves.values()].flat().find((item) => item.id === bookId);
+      const form = new URLSearchParams(init.body);
+      const bookId = form.get('book_id');
+      const isbn = form.get('isbn');
+      let book = [...shelves.values()].flat().find((item) =>
+        (bookId && item.id === bookId) || (isbn && item.isbn === isbn)
+      );
+      if (!book && isbn) {
+        const result = options.searchItems?.find((item) =>
+          item && typeof item === 'object'
+          && (item as { _microblog?: { isbn?: unknown } })._microblog?.isbn === isbn
+        ) as { title?: unknown; authors?: Array<{ name?: unknown }> } | undefined;
+        if (result && typeof result.title === 'string') {
+          book = {
+            id: String(nextId++),
+            isbn,
+            title: result.title,
+            author: typeof result.authors?.[0]?.name === 'string' ? result.authors[0].name : '',
+          };
+        }
+      }
       if (!target || !book) return response(422, {});
       if (!shelves.get(target)!.some((item) => item.id === book.id)) shelves.get(target)!.push(book);
       return response(200, {});

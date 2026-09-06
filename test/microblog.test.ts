@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { _microblog } from '../src/connectors/microblog.js';
+import { _microblog, microblogConnector } from '../src/connectors/microblog.js';
 import type { HttpTransport } from '../src/connectors/types.js';
 import { makeMicroblogTransport } from './microblog-helpers.js';
 
@@ -56,6 +56,7 @@ describe('Micro.blog shelf lookup', () => {
       items: [{ id: 5, title: 'Good Omens', authors: [{ name: 'Neil Gaiman' }, { name: 'Terry Pratchett' }] }],
     }, 'reading')).toEqual([{
       externalId: '5', title: 'Good Omens', author: 'Neil Gaiman, Terry Pratchett',
+      isbn: null,
       memberships: new Set(['reading']),
     }]);
   });
@@ -68,6 +69,63 @@ describe('Micro.blog shelf lookup', () => {
     const fake = makeMicroblogTransport({ shelves: { reading: [{ id: '1', title: DOC.title!, author: DOC.author! }] } });
     expect(await _microblog.matchBook(CRED, doc, fake.transport, EV)).toBeNull();
     expect(fake.calls).toHaveLength(0);
+  });
+});
+
+describe('Micro.blog book search', () => {
+  it('searches the JSON Feed with authentication and maps result IDs and authors', async () => {
+    let request: { url: string; headers?: Record<string, string> } | undefined;
+    const transport: HttpTransport = async (url, init) => {
+      request = { url, headers: init.headers };
+      const body = {
+        version: 'https://jsonfeed.org/version/1.1',
+        items: [
+          {
+            id: 37779109,
+            title: 'The Hobbit: Or There and Back Again',
+            authors: [{ name: 'J.R.R. Tolkien' }],
+            _microblog: { isbn: '9780547951973' },
+          },
+          {
+            id: '9780547928227',
+            title: 'The Hobbit, Or, There and Back Again',
+            authors: [{ name: 'J. R. R. Tolkien' }, { name: 'Christopher Tolkien' }],
+            _microblog: { isbn: '9780547928227' },
+          },
+          { id: null, title: 'Missing ID', authors: [] },
+        ],
+      };
+      return {
+        status: 200,
+        text: async () => JSON.stringify(body),
+        json: async () => body,
+      };
+    };
+
+    expect(microblogConnector.search).toBeTypeOf('function');
+    if (!microblogConnector.search) return;
+    expect(await microblogConnector.search(CRED, 'The Hobbit & friends', transport)).toEqual([
+      {
+        externalId: '37779109',
+        title: 'The Hobbit: Or There and Back Again',
+        author: 'J.R.R. Tolkien',
+        edition: '9780547951973',
+      },
+      {
+        externalId: '9780547928227',
+        title: 'The Hobbit, Or, There and Back Again',
+        author: 'J. R. R. Tolkien, Christopher Tolkien',
+        edition: '9780547928227',
+      },
+    ]);
+    const url = new URL(request!.url);
+    expect(url.origin + url.pathname).toBe('https://micro.blog/books/search');
+    expect(url.searchParams.get('q')).toBe('The Hobbit & friends');
+    expect(url.searchParams.get('format')).toBe('jsonfeed');
+    expect(request!.headers).toMatchObject({
+      authorization: 'Bearer mb-token',
+      accept: 'application/json',
+    });
   });
 });
 
@@ -167,6 +225,63 @@ describe('Micro.blog shelf reconciliation', () => {
     expect(writes.map((call) => call.method)).toEqual(['POST', 'DELETE']);
     expect(writes[0].url).toContain('/books/bookshelves/10/assign');
     expect(writes[1].url).toContain('/books/bookshelves/12/remove/50');
+  });
+
+  it('assigns a catalog search result by ISBN instead of treating its feed ID as a book ID', async () => {
+    const fake = makeMicroblogTransport({
+      searchItems: [{
+        id: '9780547928227',
+        title: 'The Hobbit, Or, There and Back Again',
+        authors: [{ name: 'J. R. R. Tolkien' }],
+        _microblog: { isbn: '9780547928227' },
+      }],
+    });
+    const match = {
+      externalId: '9780547928227',
+      confidence: 1,
+    };
+
+    await expect(_microblog.reconcileBook(CRED, match, EV, fake.transport)).resolves.toEqual({ ok: true });
+    const assignment = fake.calls.find((call) => call.method === 'POST');
+    expect(new URLSearchParams(assignment?.body).get('isbn')).toBe('9780547928227');
+    expect(new URLSearchParams(assignment?.body).has('book_id')).toBe(false);
+    expect(fake.shelves.get('reading')).toContainEqual({
+      id: '1000',
+      isbn: '9780547928227',
+      title: 'The Hobbit, Or, There and Back Again',
+      author: 'J. R. R. Tolkien',
+    });
+
+    fake.clearCalls();
+    await _microblog.reconcileBook(CRED, match, {
+      kind: 'finished', document: 'd', percentage: 1, timestamp: 2,
+    }, fake.transport);
+    expect(fake.shelves.get('reading')).toHaveLength(0);
+    expect(fake.shelves.get('finished')).toHaveLength(1);
+    const writes = fake.calls.filter((call) => call.method !== 'GET');
+    expect(new URLSearchParams(writes[0].body).get('book_id')).toBe('1000');
+    expect(writes[1].url).toContain('/books/bookshelves/10/remove/1000');
+  });
+
+  it('assigns by the ISBN hint when a catalog result has a separate numeric feed ID', async () => {
+    const fake = makeMicroblogTransport({
+      searchItems: [{
+        id: 37779109,
+        title: 'The Hobbit: Or There and Back Again',
+        authors: [{ name: 'J.R.R. Tolkien' }],
+        _microblog: { isbn: '9780547951973' },
+      }],
+    });
+
+    await _microblog.reconcileBook(CRED, {
+      externalId: '37779109',
+      externalEdition: '9780547951973',
+      confidence: 1,
+    }, EV, fake.transport);
+
+    const assignment = fake.calls.find((call) => call.method === 'POST');
+    expect(new URLSearchParams(assignment?.body).get('isbn')).toBe('9780547951973');
+    expect(new URLSearchParams(assignment?.body).has('book_id')).toBe(false);
   });
 
   it('moves a currently reading book to finished', async () => {

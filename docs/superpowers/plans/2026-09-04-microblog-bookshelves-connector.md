@@ -20,7 +20,7 @@
 - Remove only `to-read` and the opposite reading-state membership; never remove `loans` or `holds`.
 - Assign the destination before removing any source membership.
 - Use only the fixed HTTPS origin `https://micro.blog`; never log credentials.
-- No database migration, live Micro.blog call, new runtime dependency, or catalog-search service.
+- No database migration, live Micro.blog call during automated tests, new runtime dependency, or third-party catalog-search service.
 
 ---
 
