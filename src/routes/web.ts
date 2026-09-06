@@ -526,6 +526,16 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
 async function jget(u){ const r = await fetch(u); return { ok:r.ok, status:r.status, data: await r.json().catch(()=>({})) }; }
 async function jsend(u, m='POST', body){ const r = await fetch(u,{method:m,headers:body?{'content-type':'application/json'}:undefined, body: body?JSON.stringify(body):undefined}); return { ok:r.ok, status:r.status, data: await r.json().catch(()=>({})) }; }
+function secureCredentialConnection() {
+  return location.protocol === 'https:' || location.hostname === 'localhost'
+    || location.hostname === '127.0.0.1' || location.hostname === '[::1]';
+}
+async function linkCredential(body) {
+  if (!secureCredentialConnection()) {
+    return { ok:false, data:{ message:'Use HTTPS to link a service.' } };
+  }
+  return jsend('/api/v1/connectors/' + ID, 'PUT', { credential: body });
+}
 
 const HINTS = {
   hardcover: 'Paste your Hardcover API token from hardcover.app/account/api. Syncs your reading progress and shelf status.',
@@ -563,11 +573,11 @@ function done() { location.href = '/account'; }
 function render(conn) {
   const f = $('form');
   if (conn.credential_kind === 'token') {
-    f.innerHTML = (TOKEN_HELP[ID] || '') + '<label>API token</label><input id="tok" class="mono" placeholder="paste token">'
+    f.innerHTML = (TOKEN_HELP[ID] || '') + '<label>API token</label><input id="tok" class="mono" type="password" placeholder="paste token">'
       + '<button class="primary full mt" id="go">Link ' + esc(conn.name) + '</button><div class="err" id="e"></div>';
     $('go').onclick = async () => {
       $('e').textContent = '';
-      const r = await jsend('/api/v1/connectors/' + ID, 'PUT', { credential: { token: $('tok').value.trim() } });
+      const r = await linkCredential({ token: $('tok').value.trim() });
       if (r.ok) done(); else $('e').textContent = r.data.message || 'Could not link';
     };
   } else if (conn.credential_kind === 'kosync') {
@@ -577,7 +587,7 @@ function render(conn) {
       + '<button class="primary full mt" id="go">Connect server</button><div class="err" id="e"></div>';
     $('go').onclick = async () => {
       $('e').textContent = '';
-      const r = await jsend('/api/v1/connectors/' + ID, 'PUT', { credential: { server: $('srv').value.trim(), username: $('u').value.trim(), password: $('p').value } });
+      const r = await linkCredential({ server: $('srv').value.trim(), username: $('u').value.trim(), password: $('p').value });
       if (r.ok) done(); else $('e').textContent = r.data.message || 'Could not connect';
     };
   } else if (conn.credential_kind === 'abs') {
@@ -586,7 +596,7 @@ function render(conn) {
       + '<button class="primary full mt" id="go">Connect Audiobookshelf</button><div class="err" id="e"></div>';
     $('go').onclick = async () => {
       $('e').textContent = '';
-      const r = await jsend('/api/v1/connectors/' + ID, 'PUT', { credential: { server: $('srv').value.trim(), token: $('tok').value.trim() } });
+      const r = await linkCredential({ server: $('srv').value.trim(), token: $('tok').value.trim() });
       if (r.ok) done(); else $('e').textContent = r.data.message || 'Could not connect';
     };
   } else if (conn.credential_kind === 'device_code') {

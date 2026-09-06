@@ -12,6 +12,7 @@ import {
 } from './types.js';
 
 const BASE_URL = 'https://micro.blog';
+const COMPLETION_THRESHOLD = 0.98;
 const RELEVANT = ['reading', 'finished', 'to-read', 'loans', 'holds'] as const;
 type ShelfType = (typeof RELEVANT)[number];
 
@@ -36,7 +37,7 @@ function tokenOf(cred: Credential): string {
 }
 
 function destination(ev?: OutboundEvent): 'reading' | 'finished' {
-  return ev?.kind === 'finished' || (ev?.percentage ?? 0) >= 0.98
+  return ev?.kind === 'finished' || (ev?.percentage ?? 0) >= COMPLETION_THRESHOLD
     ? 'finished'
     : 'reading';
 }
@@ -78,12 +79,17 @@ async function request(
   const failure = operationError(response.status, init.method, path);
   if (failure) throw failure;
   if (init.method === 'POST') {
+    let body: string;
     try {
-      const body = await response.text();
-      if (!body.trim()) return {};
-      return JSON.parse(body);
+      body = await response.text();
     } catch {
       throw new ConnectorOperationError('Micro.blog returned malformed JSON', true);
+    }
+    if (!body.trim()) return {};
+    try {
+      return JSON.parse(body);
+    } catch {
+      return {};
     }
   }
   try {
@@ -190,9 +196,11 @@ async function matchBook(
   const opposite = target === 'reading' ? 'finished' : 'reading';
   const order: ShelfType[] = [target, opposite, 'to-read', 'loans', 'holds'];
   const candidates: ShelfBook[] = [];
+  const seenIds = new Set<string>();
   for (const shelfType of order) {
     for (const book of inventory) {
-      if (book.memberships.has(shelfType) && !candidates.some((candidate) => candidate.externalId === book.externalId)) {
+      if (book.memberships.has(shelfType) && !seenIds.has(book.externalId)) {
+        seenIds.add(book.externalId);
         candidates.push(book);
       }
     }
@@ -287,7 +295,7 @@ function shouldPush(ev: OutboundEvent, canonicalPercentage?: number | null): boo
   if (ev.kind === 'progress' && (ev.percentage ?? 0) <= 0) return false;
   if (canonicalPercentage == null) return true;
   if (canonicalPercentage <= 0) return false;
-  const canonicalDestination = canonicalPercentage >= 0.98 ? 'finished' : 'reading';
+  const canonicalDestination = canonicalPercentage >= COMPLETION_THRESHOLD ? 'finished' : 'reading';
   return destination(ev) === canonicalDestination;
 }
 

@@ -131,10 +131,10 @@ The connector caches the selected Micro.blog book ID in `connector_matches`. Sub
 
 If no existing candidate is accepted, `createBook()` posts the title, author, and destination `bookshelf_id` to `POST /books`. It omits ISBN and cover URL because CrossPoint Sync's canonical metadata does not currently provide them.
 
-The Books API documentation does not define the create response body. The connector therefore supports both safe outcomes:
+The Books API documentation does not define the create response body. The connector therefore supports these safe outcomes:
 
 - If a valid book ID is present in the response, return it.
-- Otherwise, re-fetch the destination shelf and locate the newly created book using the same required title-and-author matching policy.
+- If a successful response is empty, non-JSON, or valid JSON without an ID, treat it as ID-less, then re-fetch the destination shelf and locate the newly created book using the same required title-and-author matching policy.
 
 If neither method yields a real ID, creation fails without caching a synthetic value. The queue may retry only when the HTTP status or transport failure is retryable.
 
@@ -171,11 +171,11 @@ Every response is classified consistently:
 
 Successful shelf-list responses must contain a JSON Feed `items` array. The default `reading`, `finished`, and `to-read` shelves are expected to exist for every account. A required destination shelf that is missing is a permanent configuration/API-shape error. Missing `to-read`, `loans`, or `holds` shelves during lookup are treated as empty optional sources and do not fail matching.
 
-Malformed successful responses raise the typed operational error rather than being interpreted as empty shelves, preventing accidental duplicate creation. Read-only response-shape failures are retryable because the remote API may have returned a transient proxy or deployment payload. A creation response that lacks an ID is not itself an error: the connector first performs the documented destination-shelf recovery lookup. If that lookup is well-formed but the new book is absent, the failure is permanent so a retry cannot create duplicates. Error messages include the operation and HTTP status but never include the token.
+Malformed successful read responses raise the typed operational error rather than being interpreted as empty shelves, preventing accidental duplicate creation. Read-only response-shape failures are retryable because the remote API may have returned a transient proxy or deployment payload. A successful creation response that is empty, non-JSON, or lacks an ID is not itself an error: the connector first performs the documented destination-shelf recovery lookup. If that lookup is well-formed but the new book is absent, the failure is permanent so a retry cannot create duplicates. Error messages include the operation and HTTP status but never include the token.
 
 ## User Interface and Documentation
 
-The connector appears in the connector list and uses the existing token-link form. Micro.blog-specific help text says where to create an app token and explains that the connector maintains Currently reading and Finished reading books.
+The connector appears in the connector list and uses the existing token-link form. Micro.blog-specific help text says where to create an app token and explains that the connector maintains Currently reading and Finished reading books. Credential submission requires HTTPS except on loopback addresses. Deployments behind an HTTPS-terminating reverse proxy must explicitly enable `TRUST_PROXY`, and direct access must be blocked so clients cannot forge `X-Forwarded-Proto`.
 
 The public services list adds Micro.blog. If no dedicated icon asset is added, the existing broken-image fallback hides the image without blocking the connector. README connector and `TOKEN_ENC_KEY` descriptions are updated to include Micro.blog generically rather than naming only older services.
 

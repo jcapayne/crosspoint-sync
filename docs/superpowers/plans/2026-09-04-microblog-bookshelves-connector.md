@@ -468,7 +468,7 @@ Expected: FAIL because `_microblog.createBook` is missing.
 
 - [ ] **Step 7: Implement creation and ID recovery**
 
-Implement `createBook()` to load shelf definitions, require the destination shelf, form-encode title/author/bookshelf ID, and POST `/books`. Accept response IDs from `id`, `book_id`, `item.id`, or `book.id`, normalizing numbers and strings to a non-empty string. If none is present, fetch only the destination shelf and use `decideMatch()` with the same required title and author. Throw a permanent `ConnectorOperationError('Micro.blog created the book but did not return or expose its id', false)` when recovery finds nothing.
+Implement `createBook()` to load shelf definitions, require the destination shelf, form-encode title/author/bookshelf ID, and POST `/books`. Accept response IDs from `id`, `book_id`, `item.id`, or `book.id`, normalizing numbers and strings to a non-empty string. Treat an empty or non-JSON successful response as ID-less. If no ID is present, fetch only the destination shelf and use `decideMatch()` with the same required title and author. Throw a permanent `ConnectorOperationError('Micro.blog created the book but did not return or expose its id', false)` when recovery finds nothing.
 
 Export only stable test seams:
 
