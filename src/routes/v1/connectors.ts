@@ -117,6 +117,9 @@ export function connectorRoutes(
     const conn = getConnector(c.req.param('id'));
     if (!conn) return c.json({ code: 2003, message: 'Unknown connector' }, 404);
     if (!conn.beginLink) return c.json({ code: 2003, message: 'Connector has no device link' }, 400);
+    if (!credentialRequestIsSecure(c, trustProxy)) {
+      return c.json({ code: 2003, message: 'Connector credentials require HTTPS' }, 400);
+    }
     if (!secretsEnabled()) {
       return c.json({ code: 2003, message: 'Server has no TOKEN_ENC_KEY; connector storage disabled' }, 403);
     }
@@ -139,6 +142,9 @@ export function connectorRoutes(
     const conn = getConnector(c.req.param('id'));
     if (!conn) return c.json({ code: 2003, message: 'Unknown connector' }, 404);
     if (!conn.pollLink) return c.json({ code: 2003, message: 'Connector has no device link' }, 400);
+    if (!credentialRequestIsSecure(c, trustProxy)) {
+      return c.json({ code: 2003, message: 'Connector credentials require HTTPS' }, 400);
+    }
     let deviceCode: unknown;
     try {
       deviceCode = ((await c.req.json()) as Record<string, unknown>).device_code;
