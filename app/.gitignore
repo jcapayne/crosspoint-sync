@@ -2,3 +2,7 @@ node_modules/
 dist/
 test-results/
 playwright-report/
+
+# Isolated Personal Team iOS build (local signing settings and generated files).
+.ios-personal/
+scripts/__pycache__/

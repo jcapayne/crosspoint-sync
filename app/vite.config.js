@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { configDefaults } from 'vitest/config'
 import tailwindcss from '@tailwindcss/vite'
 
 // Tauri serves the built bundle; on a phone the dev server must be reachable on the LAN.
@@ -10,6 +11,7 @@ export default defineConfig({
   base: './',
   plugins: [react(), tailwindcss()],
   clearScreen: false,
+  test: { exclude: [...configDefaults.exclude, '**/.ios-personal/**'] },
   server: {
     port: 1420,
     strictPort: true,
